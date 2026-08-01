@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiveSpeak - Viewer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background-color: #1e1e1e;
+            padding: 10px 20px;
+            border-bottom: 1px solid #333;
+            text-align: center;
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.2em;
+            color: #fff;
+        }
+        #caption-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            font-size: 1.8em;
+            line-height: 1.5;
+        }
+        .caption-segment {
+            transition: opacity 0.3s ease;
+        }
+        .caption-segment.interim {
+            opacity: 0.6;
+        }
+        .caption-segment.final {
+            opacity: 1.0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>LiveSpeak Captions</h1>
+    </header>
+    <div id="caption-container">
+        <!-- Captions will be inserted here -->
+    </div>
+
+    <script>
+        const captionContainer = document.getElementById('caption-container');
+        let lastSegment = null;
+
+        function connect() {
+            const socket = new WebSocket(`ws://${window.location.host}/view`);
+
+            socket.onopen = () => {
+                console.log('Viewer connected to WebSocket server.');
+                captionContainer.innerHTML = '<span class="caption-segment interim">Connected. Waiting for captions...</span>';
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                // Clear the initial "Waiting..." message on first transcript
+                if (captionContainer.children.length === 1 && captionContainer.firstChild.textContent.startsWith('Connected')) {
+                    captionContainer.innerHTML = '';
+                    lastSegment = null;
+                }
+
+                if (data.isFinal) {
+                    // Final result: solidify the last segment and add a space.
+                    if (lastSegment) {
+                        lastSegment.textContent = data.text + ' ';
+                        lastSegment.classList.remove('interim');
+                        lastSegment.classList.add('final');
+                        lastSegment = null; // Prepare for a new segment
+                    } else {
+                        // If there's no interim segment (e.g., a very short word), just add it.
+                        const finalSpan = document.createElement('span');
+                        finalSpan.className = 'caption-segment final';
+                        finalSpan.textContent = data.text + ' ';
+                        captionContainer.appendChild(finalSpan);
+                    }
+                } else {
+                    // Interim result: create a new segment or update the last one.
+                    if (!lastSegment) {
+                        lastSegment = document.createElement('span');
+                        lastSegment.className = 'caption-segment interim';
+                        captionContainer.appendChild(lastSegment);
+                    }
+                    lastSegment.textContent = data.text;
+                }
+                
+                // Auto-scroll to the bottom
+                captionContainer.scrollTop = captionContainer.scrollHeight;
+            };
+
+            socket.onclose = () => {
+                console.log('WebSocket connection closed. Reconnecting in 3 seconds...');
+                if(lastSegment) {
+                    lastSegment.textContent += " (Connection lost. Reconnecting...)"
+                }
+                setTimeout(connect, 3000);
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                socket.close();
+            };
+        }
+
+        connect();
+    </script>
+</body>
+</html>
+
